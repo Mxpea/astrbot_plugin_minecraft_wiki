@@ -57,7 +57,7 @@ class SearchWikiPageTool(FunctionTool[AstrAgentContext]):
             "required": ["query"],
         }
     )
-    api: MinecraftWikiAPI | None = None
+    api: Any = None
 
     async def call(self, context: ContextWrapper[AstrAgentContext], **kwargs) -> ToolExecResult:
         result = await search_wiki_page(self.api, kwargs.get("query", ""))
@@ -77,8 +77,8 @@ class GetWikiSummaryTool(FunctionTool[AstrAgentContext]):
             "required": ["title"],
         }
     )
-    api: MinecraftWikiAPI | None = None
-    cache: WikiTTLCache | None = None
+    api: Any = None
+    cache: Any = None
     max_chars: int = 1800
 
     async def call(self, context: ContextWrapper[AstrAgentContext], **kwargs) -> ToolExecResult:
@@ -105,7 +105,7 @@ class GetWikiSectionTool(FunctionTool[AstrAgentContext]):
             "required": ["title", "section"],
         }
     )
-    api: MinecraftWikiAPI | None = None
+    api: Any = None
     max_chars: int = 1800
 
     async def call(self, context: ContextWrapper[AstrAgentContext], **kwargs) -> ToolExecResult:
@@ -131,8 +131,8 @@ class GetCommandInfoTool(FunctionTool[AstrAgentContext]):
             "required": ["command"],
         }
     )
-    api: MinecraftWikiAPI | None = None
-    cache: WikiTTLCache | None = None
+    api: Any = None
+    cache: Any = None
     max_chars: int = 1800
 
     async def call(self, context: ContextWrapper[AstrAgentContext], **kwargs) -> ToolExecResult:
@@ -158,8 +158,8 @@ class GetMechanicInfoTool(FunctionTool[AstrAgentContext]):
             "required": ["mechanic"],
         }
     )
-    api: MinecraftWikiAPI | None = None
-    cache: WikiTTLCache | None = None
+    api: Any = None
+    cache: Any = None
     max_chars: int = 1800
 
     async def call(self, context: ContextWrapper[AstrAgentContext], **kwargs) -> ToolExecResult:
@@ -185,8 +185,8 @@ class GetCraftingRecipeTool(FunctionTool[AstrAgentContext]):
             "required": ["item"],
         }
     )
-    api: MinecraftWikiAPI | None = None
-    cache: WikiTTLCache | None = None
+    api: Any = None
+    cache: Any = None
     max_chars: int = 1800
 
     async def call(self, context: ContextWrapper[AstrAgentContext], **kwargs) -> ToolExecResult:
