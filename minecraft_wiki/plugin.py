@@ -2,14 +2,9 @@ import inspect
 import json
 from typing import Any
 
-from pydantic import Field
-from pydantic.dataclasses import dataclass
-
 from astrbot.api import logger
+from astrbot.api.event import AstrMessageEvent, MessageEventResult, filter
 from astrbot.api.star import Context, Star, register
-from astrbot.core.agent.run_context import ContextWrapper
-from astrbot.core.agent.tool import FunctionTool, ToolExecResult
-from astrbot.core.astr_agent_context import AstrAgentContext
 
 from .config import MinecraftWikiConfig
 from .tools import (
@@ -44,161 +39,6 @@ def _to_json(payload: dict[str, Any], max_chars: int = 3800) -> str:
     return json.dumps({"error": "payload too large", "truncated": text[: max_chars - 3] + "..."}, ensure_ascii=False)
 
 
-@dataclass
-class SearchWikiPageTool(FunctionTool[AstrAgentContext]):
-    name: str = "search_wiki_page"
-    description: str = "搜索 Minecraft Wiki 页面，返回标题与摘要片段。"
-    parameters: dict[str, Any] = Field(
-        default_factory=lambda: {
-            "type": "object",
-            "properties": {
-                "query": {"type": "string", "description": "搜索词，优先中文。"},
-            },
-            "required": ["query"],
-        }
-    )
-    api: Any = None
-
-    async def call(self, context: ContextWrapper[AstrAgentContext], **kwargs) -> ToolExecResult:
-        result = await search_wiki_page(self.api, kwargs.get("query", ""))
-        return _to_json(result)
-
-
-@dataclass
-class GetWikiSummaryTool(FunctionTool[AstrAgentContext]):
-    name: str = "get_wiki_summary"
-    description: str = "获取指定 Wiki 页面的摘要信息。"
-    parameters: dict[str, Any] = Field(
-        default_factory=lambda: {
-            "type": "object",
-            "properties": {
-                "title": {"type": "string", "description": "Wiki 页面标题。"},
-            },
-            "required": ["title"],
-        }
-    )
-    api: Any = None
-    cache: Any = None
-    max_chars: int = 1800
-
-    async def call(self, context: ContextWrapper[AstrAgentContext], **kwargs) -> ToolExecResult:
-        result = await get_wiki_summary(
-            api=self.api,
-            cache=self.cache,
-            title=kwargs.get("title", ""),
-            max_chars=self.max_chars,
-        )
-        return _to_json(result)
-
-
-@dataclass
-class GetWikiSectionTool(FunctionTool[AstrAgentContext]):
-    name: str = "get_wiki_section"
-    description: str = "获取 Wiki 页面中的指定章节内容。"
-    parameters: dict[str, Any] = Field(
-        default_factory=lambda: {
-            "type": "object",
-            "properties": {
-                "title": {"type": "string", "description": "Wiki 页面标题。"},
-                "section": {"type": "string", "description": "章节名称，例如 语法、机制、合成。"},
-            },
-            "required": ["title", "section"],
-        }
-    )
-    api: Any = None
-    max_chars: int = 1800
-
-    async def call(self, context: ContextWrapper[AstrAgentContext], **kwargs) -> ToolExecResult:
-        result = await get_wiki_section(
-            api=self.api,
-            title=kwargs.get("title", ""),
-            section=kwargs.get("section", ""),
-            max_chars=self.max_chars,
-        )
-        return _to_json(result)
-
-
-@dataclass
-class GetCommandInfoTool(FunctionTool[AstrAgentContext]):
-    name: str = "get_command_info"
-    description: str = "查询 Minecraft 命令信息，返回语法、参数说明和示例。"
-    parameters: dict[str, Any] = Field(
-        default_factory=lambda: {
-            "type": "object",
-            "properties": {
-                "command": {"type": "string", "description": "命令名称，如 tp、execute、give、scoreboard。"},
-            },
-            "required": ["command"],
-        }
-    )
-    api: Any = None
-    cache: Any = None
-    max_chars: int = 1800
-
-    async def call(self, context: ContextWrapper[AstrAgentContext], **kwargs) -> ToolExecResult:
-        result = await get_command_info(
-            api=self.api,
-            cache=self.cache,
-            command=kwargs.get("command", ""),
-            max_chars=self.max_chars,
-        )
-        return _to_json(result)
-
-
-@dataclass
-class GetMechanicInfoTool(FunctionTool[AstrAgentContext]):
-    name: str = "get_mechanic_info"
-    description: str = "查询 Minecraft 游戏机制信息，如红石、刷怪、掉落、交易、伤害等。"
-    parameters: dict[str, Any] = Field(
-        default_factory=lambda: {
-            "type": "object",
-            "properties": {
-                "mechanic": {"type": "string", "description": "机制关键词，如 红石中继器、刷怪机制。"},
-            },
-            "required": ["mechanic"],
-        }
-    )
-    api: Any = None
-    cache: Any = None
-    max_chars: int = 1800
-
-    async def call(self, context: ContextWrapper[AstrAgentContext], **kwargs) -> ToolExecResult:
-        result = await get_mechanic_info(
-            api=self.api,
-            cache=self.cache,
-            mechanic=kwargs.get("mechanic", ""),
-            max_chars=self.max_chars,
-        )
-        return _to_json(result)
-
-
-@dataclass
-class GetCraftingRecipeTool(FunctionTool[AstrAgentContext]):
-    name: str = "get_crafting_recipe"
-    description: str = "查询 Minecraft 物品合成配方。"
-    parameters: dict[str, Any] = Field(
-        default_factory=lambda: {
-            "type": "object",
-            "properties": {
-                "item": {"type": "string", "description": "物品名称，如 钻石剑、附魔台。"},
-            },
-            "required": ["item"],
-        }
-    )
-    api: Any = None
-    cache: Any = None
-    max_chars: int = 1800
-
-    async def call(self, context: ContextWrapper[AstrAgentContext], **kwargs) -> ToolExecResult:
-        result = await get_crafting_recipe(
-            api=self.api,
-            cache=self.cache,
-            item=kwargs.get("item", ""),
-            max_chars=self.max_chars,
-        )
-        return _to_json(result)
-
-
 @register("minecraft_wiki", "Mxpea", "LLM 可调用的 Minecraft Wiki 中文查询插件", "1.0.0")
 class MinecraftWikiPlugin(Star):
     def __init__(self, context: Context):
@@ -211,29 +51,73 @@ class MinecraftWikiPlugin(Star):
         self.cache = WikiTTLCache(ttl_seconds=self.config.cache_ttl_seconds)
 
     async def initialize(self):
-        tools = [
-            SearchWikiPageTool(api=self.api),
-            GetWikiSummaryTool(api=self.api, cache=self.cache, max_chars=self.config.max_return_chars),
-            GetWikiSectionTool(api=self.api, max_chars=self.config.max_return_chars),
-            GetCommandInfoTool(api=self.api, cache=self.cache, max_chars=self.config.max_return_chars),
-            GetMechanicInfoTool(api=self.api, cache=self.cache, max_chars=self.config.max_return_chars),
-            GetCraftingRecipeTool(api=self.api, cache=self.cache, max_chars=self.config.max_return_chars),
-        ]
-
-        add_llm_tools = getattr(self.context, "add_llm_tools", None)
-        if callable(add_llm_tools):
-            add_llm_tools(*tools)
-        else:
-            tool_mgr = getattr(getattr(self.context, "provider_manager", None), "llm_tools", None)
-            if tool_mgr and hasattr(tool_mgr, "func_list"):
-                tool_mgr.func_list.extend(tools)
-
         add_prompt = getattr(self.context, "add_system_prompt", None)
         if callable(add_prompt):
             prompt_ret = add_prompt(MINECRAFT_WIKI_TOOL_PROMPT)
             if inspect.isawaitable(prompt_ret):
                 await prompt_ret
         logger.info("minecraft_wiki tools registered")
+
+    @filter.llm_tool(name="search_wiki_page")
+    async def llm_search_wiki_page(self, event: AstrMessageEvent, query: str) -> MessageEventResult:
+        '''搜索 Minecraft Wiki 页面。
+
+        Args:
+            query(string): 搜索词，优先中文名称或命令名
+        '''
+        result = await search_wiki_page(self.api, query)
+        yield event.plain_result(_to_json(result, max_chars=self.config.max_return_chars))
+
+    @filter.llm_tool(name="get_wiki_summary")
+    async def llm_get_wiki_summary(self, event: AstrMessageEvent, title: str) -> MessageEventResult:
+        '''获取 Minecraft Wiki 页面的摘要。
+
+        Args:
+            title(string): Wiki 页面标题
+        '''
+        result = await get_wiki_summary(self.api, self.cache, title, max_chars=self.config.max_return_chars)
+        yield event.plain_result(_to_json(result, max_chars=self.config.max_return_chars))
+
+    @filter.llm_tool(name="get_wiki_section")
+    async def llm_get_wiki_section(self, event: AstrMessageEvent, title: str, section: str) -> MessageEventResult:
+        '''获取 Minecraft Wiki 页面中的指定章节。
+
+        Args:
+            title(string): Wiki 页面标题
+            section(string): 章节名称，例如 语法、机制、合成
+        '''
+        result = await get_wiki_section(self.api, title, section, max_chars=self.config.max_return_chars)
+        yield event.plain_result(_to_json(result, max_chars=self.config.max_return_chars))
+
+    @filter.llm_tool(name="get_command_info")
+    async def llm_get_command_info(self, event: AstrMessageEvent, command: str) -> MessageEventResult:
+        '''获取 Minecraft 命令信息。
+
+        Args:
+            command(string): 命令名称，如 tp、execute、give、scoreboard
+        '''
+        result = await get_command_info(self.api, self.cache, command, max_chars=self.config.max_return_chars)
+        yield event.plain_result(_to_json(result, max_chars=self.config.max_return_chars))
+
+    @filter.llm_tool(name="get_mechanic_info")
+    async def llm_get_mechanic_info(self, event: AstrMessageEvent, mechanic: str) -> MessageEventResult:
+        '''获取 Minecraft 游戏机制说明。
+
+        Args:
+            mechanic(string): 机制关键词，如 红石中继器、刷怪机制、村民交易机制
+        '''
+        result = await get_mechanic_info(self.api, self.cache, mechanic, max_chars=self.config.max_return_chars)
+        yield event.plain_result(_to_json(result, max_chars=self.config.max_return_chars))
+
+    @filter.llm_tool(name="get_crafting_recipe")
+    async def llm_get_crafting_recipe(self, event: AstrMessageEvent, item: str) -> MessageEventResult:
+        '''获取 Minecraft 物品合成配方。
+
+        Args:
+            item(string): 物品名称，如 钻石剑、附魔台
+        '''
+        result = await get_crafting_recipe(self.api, self.cache, item, max_chars=self.config.max_return_chars)
+        yield event.plain_result(_to_json(result, max_chars=self.config.max_return_chars))
 
     async def terminate(self):
         await self.api.close()
