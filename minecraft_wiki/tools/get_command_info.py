@@ -3,7 +3,7 @@ import re
 
 from ..wiki.api import MinecraftWikiAPI
 from ..wiki.cache import WikiTTLCache
-from ..wiki.parser import extract_command_usage, extract_mechanic_description, extract_section
+from ..wiki.parser import clean_wikitext, extract_command_usage, extract_mechanic_description, extract_section
 from .get_summary import get_wiki_summary
 from .search_page import search_wiki_page
 
@@ -38,6 +38,32 @@ async def _resolve_command_title(api: MinecraftWikiAPI, command: str) -> str:
     return ""
 
 
+def _resolve_redirect_title(raw_wikitext: str) -> str:
+    match = re.search(r"#(?:redirect|重定向)\s*\[\[(.*?)\]\]", raw_wikitext or "", flags=re.I)
+    return match.group(1).strip() if match else ""
+
+
+def _is_noisy_markup(text: str) -> bool:
+    if not text:
+        return True
+    noise_tokens = ("{{", "}}", "|", "#REDIRECT", "教程性内容", "name=", "oplevel=")
+    return sum(token in text for token in noise_tokens) >= 2
+
+
+def _fallback_command_lines(wikitext: str, command: str, max_chars: int) -> str:
+    patterns = [rf"/{re.escape(command)}\b.*", rf"\b{re.escape(command)}\b.*"]
+    lines = []
+    for raw_line in (wikitext or "").splitlines():
+        line = raw_line.strip()
+        if any(re.search(pattern, line, flags=re.I) for pattern in patterns):
+            cleaned = clean_wikitext(line, max_chars=240)
+            if cleaned:
+                lines.append(cleaned)
+        if len(lines) >= 8:
+            break
+    return clean_wikitext("\n".join(lines), max_chars=max_chars)
+
+
 async def get_command_info(
     api: MinecraftWikiAPI,
     cache: WikiTTLCache,
@@ -62,7 +88,7 @@ async def get_command_info(
     if not title:
         return {"error": "page not found"}
 
-    cached = cache.get(title)
+    cached = cache.get_page_field(title, "command_info")
     if cached and all(key in cached for key in ["syntax", "description", "example"]):
         return cached
 
@@ -74,14 +100,29 @@ async def get_command_info(
     if isinstance(raw_wikitext, dict):
         raw_wikitext = raw_wikitext.get("*", "")
 
+    redirect_title = _resolve_redirect_title(raw_wikitext)
+    if redirect_title:
+        title = redirect_title
+        wikitext_data = await api.get_page_wikitext(title)
+        if wikitext_data.get("error"):
+            return {"error": "page not found"}
+        raw_wikitext = wikitext_data.get("parse", {}).get("wikitext", "")
+        if isinstance(raw_wikitext, dict):
+            raw_wikitext = raw_wikitext.get("*", "")
+
     syntax = extract_command_usage(raw_wikitext, max_chars=max_chars // 2)
+    if _is_noisy_markup(syntax):
+        syntax = _fallback_command_lines(raw_wikitext, cmd, max_chars=max_chars // 2)
+
     example = extract_section(raw_wikitext, "示例", max_chars=max_chars // 3)
     if not example:
         example = extract_section(raw_wikitext, "用法", max_chars=max_chars // 3)
+    if _is_noisy_markup(example):
+        example = _fallback_command_lines(raw_wikitext, cmd, max_chars=max_chars // 3)
 
     summary = await get_wiki_summary(api, cache, title, max_chars=max_chars // 2)
     description = extract_mechanic_description(raw_wikitext, max_chars=max_chars // 2)
-    if not description:
+    if not description or _is_noisy_markup(description):
         description = summary.get("summary", "") if "error" not in summary else ""
 
     result = {
@@ -91,5 +132,5 @@ async def get_command_info(
         "description": description,
         "example": example,
     }
-    cache.set(title, result)
+    cache.set_page_field(title, "command_info", result)
     return result

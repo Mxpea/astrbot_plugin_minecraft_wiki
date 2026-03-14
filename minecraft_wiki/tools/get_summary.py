@@ -30,7 +30,7 @@ async def get_wiki_summary(
 
     clean_title = title.strip()
     cache_key = clean_title
-    cached = cache.get(cache_key)
+    cached = cache.get_page_field(cache_key, "summary")
     if cached:
         return cached
 
@@ -46,5 +46,5 @@ async def get_wiki_summary(
         "title": page.get("title", clean_title),
         "summary": _clean_extract(page.get("extract", ""), max_chars=max_chars),
     }
-    cache.set(result["title"], result)
+    cache.set_page_field(result["title"], "summary", result)
     return result

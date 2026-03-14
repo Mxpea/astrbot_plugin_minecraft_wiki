@@ -31,6 +31,11 @@ async def _resolve_item_title(api: MinecraftWikiAPI, item: str) -> str:
     return ""
 
 
+def _resolve_redirect_title(raw_wikitext: str) -> str:
+    match = re.search(r"#(?:redirect|重定向)\s*\[\[(.*?)\]\]", raw_wikitext or "", flags=re.I)
+    return match.group(1).strip() if match else ""
+
+
 async def get_crafting_recipe(
     api: MinecraftWikiAPI,
     cache: WikiTTLCache,
@@ -56,7 +61,7 @@ async def get_crafting_recipe(
     if not title:
         return {"error": "page not found"}
 
-    cached = cache.get(title)
+    cached = cache.get_page_field(title, "recipe")
     if cached and "recipe" in cached:
         return cached
 
@@ -68,7 +73,17 @@ async def get_crafting_recipe(
     if isinstance(raw_wikitext, dict):
         raw_wikitext = raw_wikitext.get("*", "")
 
-    recipe = extract_recipe(raw_wikitext, max_chars=max_chars)
+    redirect_title = _resolve_redirect_title(raw_wikitext)
+    if redirect_title:
+        title = redirect_title
+        wikitext_data = await api.get_page_wikitext(title)
+        if wikitext_data.get("error"):
+            return {"error": "page not found"}
+        raw_wikitext = wikitext_data.get("parse", {}).get("wikitext", "")
+        if isinstance(raw_wikitext, dict):
+            raw_wikitext = raw_wikitext.get("*", "")
+
+    recipe = extract_recipe(raw_wikitext, item_name=name, max_chars=max_chars)
     if not recipe:
         return {"error": "page not found"}
 
@@ -77,5 +92,5 @@ async def get_crafting_recipe(
         "title": title,
         "recipe": recipe,
     }
-    cache.set(title, result)
+    cache.set_page_field(title, "recipe", result)
     return result
