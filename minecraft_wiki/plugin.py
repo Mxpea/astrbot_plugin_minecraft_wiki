@@ -39,7 +39,7 @@ def _to_json(payload: dict[str, Any], max_chars: int = 3800) -> str:
     return json.dumps({"error": "payload too large", "truncated": text[: max_chars - 3] + "..."}, ensure_ascii=False)
 
 
-@register("minecraft_wiki", "Mxpea", "LLM 可调用的 Minecraft Wiki 中文查询插件", "1.0.0")
+@register("astrbot_plugin_minecraft_wiki", "Mxpea", "LLM 可调用的 Minecraft Wiki 中文查询插件", "1.0.0")
 class MinecraftWikiPlugin(Star):
     def __init__(self, context: Context):
         super().__init__(context)
