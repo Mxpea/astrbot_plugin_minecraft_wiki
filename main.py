@@ -3,8 +3,14 @@ import json
 from typing import Any
 
 from astrbot.api import logger
+
 from astrbot.api.event import AstrMessageEvent, MessageEventResult, filter
 from astrbot.api.star import Context, Star, register
+
+try:
+	from astrbot.api.star import StarTools
+except ImportError:
+	StarTools = None  # type: ignore[assignment]
 
 try:
 	from .minecraft_wiki.config import MinecraftWikiConfig
@@ -56,11 +62,19 @@ def _to_json(payload: dict[str, Any], max_chars: int = 3800) -> str:
 	)
 
 
-@register("astrbot_plugin_minecraft_wiki", "Mxpea", "LLM 可调用的 Minecraft Wiki 中文查询插件", "1.0.0")
+@register("astrbot_plugin_minecraft_wiki", "Mxpea", "LLM 可调用的 Minecraft Wiki 中文查询插件", "v1.0.0")
 class MinecraftWikiPlugin(Star):
-	def __init__(self, context: Context):
+	def __init__(self, context: Context, config: Any | None = None):
 		super().__init__(context)
-		self.config = MinecraftWikiConfig()
+		if StarTools is not None:
+			try:
+				self.data_dir = StarTools.get_data_dir()
+			except Exception:
+				self.data_dir = None
+		else:
+			self.data_dir = None
+
+		self.config = MinecraftWikiConfig.from_mapping(config)
 		self.api = MinecraftWikiAPI(
 			base_url=self.config.base_url,
 			timeout_seconds=self.config.timeout_seconds,
@@ -92,7 +106,12 @@ class MinecraftWikiPlugin(Star):
 		Args:
 			title(string): Wiki 页面标题
 		'''
-		result = await get_wiki_summary(self.api, self.cache, title, max_chars=self.config.max_return_chars)
+		result = await get_wiki_summary(
+			self.api,
+			self.cache,
+			title,
+			max_chars=self.config.max_return_chars,
+		)
 		yield event.plain_result(_to_json(result, max_chars=self.config.max_return_chars))
 
 	@filter.llm_tool(name="get_wiki_section")
@@ -108,7 +127,12 @@ class MinecraftWikiPlugin(Star):
 			title(string): Wiki 页面标题
 			section(string): 章节名称，例如 语法、机制、合成
 		'''
-		result = await get_wiki_section(self.api, title, section, max_chars=self.config.max_return_chars)
+		result = await get_wiki_section(
+			self.api,
+			title,
+			section,
+			max_chars=self.config.max_return_chars,
+		)
 		yield event.plain_result(_to_json(result, max_chars=self.config.max_return_chars))
 
 	@filter.llm_tool(name="get_command_info")
@@ -118,7 +142,12 @@ class MinecraftWikiPlugin(Star):
 		Args:
 			command(string): 命令名称，如 tp、execute、give、scoreboard
 		'''
-		result = await get_command_info(self.api, self.cache, command, max_chars=self.config.max_return_chars)
+		result = await get_command_info(
+			self.api,
+			self.cache,
+			command,
+			max_chars=self.config.max_return_chars,
+		)
 		yield event.plain_result(_to_json(result, max_chars=self.config.max_return_chars))
 
 	@filter.llm_tool(name="get_mechanic_info")
@@ -128,7 +157,12 @@ class MinecraftWikiPlugin(Star):
 		Args:
 			mechanic(string): 机制关键词，如 红石中继器、刷怪机制、村民交易机制
 		'''
-		result = await get_mechanic_info(self.api, self.cache, mechanic, max_chars=self.config.max_return_chars)
+		result = await get_mechanic_info(
+			self.api,
+			self.cache,
+			mechanic,
+			max_chars=self.config.max_return_chars,
+		)
 		yield event.plain_result(_to_json(result, max_chars=self.config.max_return_chars))
 
 	@filter.llm_tool(name="get_crafting_recipe")
@@ -138,7 +172,12 @@ class MinecraftWikiPlugin(Star):
 		Args:
 			item(string): 物品名称，如 钻石剑、附魔台
 		'''
-		result = await get_crafting_recipe(self.api, self.cache, item, max_chars=self.config.max_return_chars)
+		result = await get_crafting_recipe(
+			self.api,
+			self.cache,
+			item,
+			max_chars=self.config.max_return_chars,
+		)
 		yield event.plain_result(_to_json(result, max_chars=self.config.max_return_chars))
 
 	async def terminate(self):

@@ -1,0 +1,32 @@
+{
+  "base_url": {
+    "type": "string",
+    "description": "Minecraft Wiki API 地址",
+    "hint": "默认使用中文 Wiki API，通常无需修改",
+    "default": "https://zh.minecraft.wiki/api.php"
+  },
+  "timeout_seconds": {
+    "type": "float",
+    "description": "HTTP 请求超时秒数",
+    "hint": "网络较慢可适当调大",
+    "default": 12.0
+  },
+  "cache_ttl_seconds": {
+    "type": "int",
+    "description": "缓存有效期（秒）",
+    "hint": "默认 24 小时",
+    "default": 86400
+  },
+  "max_return_chars": {
+    "type": "int",
+    "description": "单次工具返回最大字符数",
+    "hint": "避免返回过长内容导致模型上下文拥挤",
+    "default": 3800
+  },
+  "default_search_limit": {
+    "type": "int",
+    "description": "默认搜索候选数量",
+    "hint": "候选越多越准，但请求也会稍慢",
+    "default": 5
+  }
+}
