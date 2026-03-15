@@ -1,11 +1,11 @@
 """Compatibility shim.
 
-The real AstrBot Star class is defined in main.py to avoid older-core loading issues.
+The real AstrBot Star class is defined in astrbot_plugin_minecraft_wiki.py.
 """
 
 try:
-    from ..main import MinecraftWikiPlugin
+    from ..astrbot_plugin_minecraft_wiki import MinecraftWikiPlugin
 except ImportError:
-    from main import MinecraftWikiPlugin
+    from astrbot_plugin_minecraft_wiki import MinecraftWikiPlugin
 
 __all__ = ["MinecraftWikiPlugin"]
