@@ -3,7 +3,7 @@ import json
 from typing import Any
 
 from astrbot.api import logger
-from astrbot.api.event import AstrMessageEvent, MessageEventResult, filter
+from astrbot.api.event import AstrMessageEvent, filter
 from astrbot.api.star import Context, Star, register
 
 try:
@@ -89,17 +89,17 @@ class MinecraftWikiPlugin(Star):
         logger.info("minecraft_wiki tools registered")
 
     @filter.llm_tool(name="search_wiki_page")
-    async def llm_search_wiki_page(self, event: AstrMessageEvent, query: str) -> MessageEventResult:
+    async def llm_search_wiki_page(self, event: AstrMessageEvent, query: str) -> str:
         '''搜索 Minecraft Wiki 页面。
 
         Args:
             query(string): 搜索词，优先中文名称或命令名
         '''
         result = await search_wiki_page(self.api, query)
-        yield event.plain_result(_to_json(result, max_chars=self.config.max_return_chars))
+        return _to_json(result, max_chars=self.config.max_return_chars)
 
     @filter.llm_tool(name="get_wiki_summary")
-    async def llm_get_wiki_summary(self, event: AstrMessageEvent, title: str) -> MessageEventResult:
+    async def llm_get_wiki_summary(self, event: AstrMessageEvent, title: str) -> str:
         '''获取 Minecraft Wiki 页面的摘要。
 
         Args:
@@ -111,7 +111,7 @@ class MinecraftWikiPlugin(Star):
             title,
             max_chars=self.config.max_return_chars,
         )
-        yield event.plain_result(_to_json(result, max_chars=self.config.max_return_chars))
+        return _to_json(result, max_chars=self.config.max_return_chars)
 
     @filter.llm_tool(name="get_wiki_section")
     async def llm_get_wiki_section(
@@ -119,7 +119,7 @@ class MinecraftWikiPlugin(Star):
         event: AstrMessageEvent,
         title: str,
         section: str,
-    ) -> MessageEventResult:
+    ) -> str:
         '''获取 Minecraft Wiki 页面中的指定章节。
 
         Args:
@@ -132,10 +132,10 @@ class MinecraftWikiPlugin(Star):
             section,
             max_chars=self.config.max_return_chars,
         )
-        yield event.plain_result(_to_json(result, max_chars=self.config.max_return_chars))
+        return _to_json(result, max_chars=self.config.max_return_chars)
 
     @filter.llm_tool(name="get_command_info")
-    async def llm_get_command_info(self, event: AstrMessageEvent, command: str) -> MessageEventResult:
+    async def llm_get_command_info(self, event: AstrMessageEvent, command: str) -> str:
         '''获取 Minecraft 命令信息。
 
         Args:
@@ -147,10 +147,10 @@ class MinecraftWikiPlugin(Star):
             command,
             max_chars=self.config.max_return_chars,
         )
-        yield event.plain_result(_to_json(result, max_chars=self.config.max_return_chars))
+        return _to_json(result, max_chars=self.config.max_return_chars)
 
     @filter.llm_tool(name="get_mechanic_info")
-    async def llm_get_mechanic_info(self, event: AstrMessageEvent, mechanic: str) -> MessageEventResult:
+    async def llm_get_mechanic_info(self, event: AstrMessageEvent, mechanic: str) -> str:
         '''获取 Minecraft 游戏机制说明。
 
         Args:
@@ -162,10 +162,10 @@ class MinecraftWikiPlugin(Star):
             mechanic,
             max_chars=self.config.max_return_chars,
         )
-        yield event.plain_result(_to_json(result, max_chars=self.config.max_return_chars))
+        return _to_json(result, max_chars=self.config.max_return_chars)
 
     @filter.llm_tool(name="get_crafting_recipe")
-    async def llm_get_crafting_recipe(self, event: AstrMessageEvent, item: str) -> MessageEventResult:
+    async def llm_get_crafting_recipe(self, event: AstrMessageEvent, item: str) -> str:
         '''获取 Minecraft 物品合成配方。
 
         Args:
@@ -177,7 +177,7 @@ class MinecraftWikiPlugin(Star):
             item,
             max_chars=self.config.max_return_chars,
         )
-        yield event.plain_result(_to_json(result, max_chars=self.config.max_return_chars))
+        return _to_json(result, max_chars=self.config.max_return_chars)
 
     async def terminate(self):
         await self.api.close()
