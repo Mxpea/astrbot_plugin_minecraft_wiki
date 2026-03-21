@@ -26,6 +26,12 @@ COMMON_TERM_TRANSLATIONS = {
     "Copper Ingot": "铜锭",
     "Any Planks": "任意木板",
     "Any stone-tier block": "任意石质材料",
+    "Rabbit Stew": "兔肉煲",
+    "Cooked Rabbit": "熟兔肉",
+    "Carrot": "胡萝卜",
+    "Baked Potato": "烤马铃薯",
+    "Any Mushroom": "任意蘑菇",
+    "Bowl": "碗",
 }
 
 
@@ -148,6 +154,16 @@ def extract_recipe(wikitext: str, item_name: str = "", max_chars: int = 1800) ->
     if template_match:
         template = template_match.group(0)
         params = dict(re.findall(r"\|\s*([^=|\n]+?)\s*=\s*([^|\n]+)", template))
+        positional_params = []
+        for raw_line in template.splitlines():
+            line = raw_line.strip()
+            if not line.startswith("|"):
+                continue
+            body = line[1:].strip()
+            if not body or "=" in body:
+                continue
+            positional_params.append(body)
+
         output_index = 0
         output = ""
         for key in ["Output", "output", "产物", "结果"]:
@@ -158,13 +174,21 @@ def extract_recipe(wikitext: str, item_name: str = "", max_chars: int = 1800) ->
                 break
 
         ingredients = []
+        seen_ingredients = set()
         for key, value in params.items():
             normalized_key = key.strip().lower()
             if re.fullmatch(r"[abc]?[1-3]|[a-z]\d|材料\d+|input\d*|in\d*", normalized_key) and value.strip():
                 picked_value = _pick_variant_value(value.strip(), output_index)
                 cleaned_value = translate_terms(clean_wikitext(picked_value, max_chars=120))
-                if cleaned_value:
+                if cleaned_value and cleaned_value not in seen_ingredients:
                     ingredients.append(cleaned_value)
+                    seen_ingredients.add(cleaned_value)
+
+        for value in positional_params:
+            cleaned_value = translate_terms(clean_wikitext(value, max_chars=120))
+            if cleaned_value and cleaned_value not in seen_ingredients:
+                ingredients.append(cleaned_value)
+                seen_ingredients.add(cleaned_value)
 
         lines = []
         if output:

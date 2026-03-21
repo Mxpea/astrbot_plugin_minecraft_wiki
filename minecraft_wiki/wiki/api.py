@@ -6,7 +6,10 @@ import httpx
 class MinecraftWikiAPI:
     def __init__(self, base_url: str, timeout_seconds: float = 12.0):
         self.base_url = base_url
-        self._client = httpx.AsyncClient(timeout=timeout_seconds)
+        self._client = httpx.AsyncClient(
+            timeout=timeout_seconds,
+            headers={"User-Agent": "astrbot-plugin-minecraft-wiki/1.0"},
+        )
 
     async def close(self) -> None:
         await self._client.aclose()

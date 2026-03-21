@@ -7,6 +7,29 @@ from ..wiki.parser import extract_recipe
 from .search_page import search_wiki_page
 
 
+def _normalize_item_name(item: str) -> str:
+    text = (item or "").strip()
+    if not text:
+        return ""
+
+    text = text.strip(" \t\r\n\"'“”‘’。！？?!")
+    text = re.sub(r"^(请问|问下|想问下|我想知道|请教一下)\s*", "", text)
+
+    patterns = [
+        r"^(.+?)\s*的?\s*(?:合成)?配方(?:是|是什么|是多少)?$",
+        r"^(.+?)\s*(?:怎么|如何)(?:合成|制作)$",
+        r"^(.+?)\s*(?:配方|合成)$",
+    ]
+    for pattern in patterns:
+        match = re.match(pattern, text)
+        if match:
+            candidate = match.group(1).strip(" \t\r\n\"'“”‘’。！？?!")
+            if candidate:
+                return candidate
+
+    return text
+
+
 def _pick_best_title(results: list[dict[str, str]], item: str) -> str:
     if not results:
         return ""
@@ -42,7 +65,7 @@ async def get_crafting_recipe(
     item: str,
     max_chars: int = 1800,
 ) -> dict[str, Any]:
-    name = (item or "").strip()
+    name = _normalize_item_name(item)
     if not name:
         return {"error": "page not found"}
 
