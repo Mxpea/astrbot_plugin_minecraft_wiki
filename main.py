@@ -71,6 +71,34 @@ def _extract_command_from_text(text: str) -> str:
     return ""
 
 
+def _normalize_question_text(text: str) -> str:
+    query = (text or "").strip()
+    if not query:
+        return ""
+    query = query.strip(" \t\r\n\"'“”‘’。！？?!")
+    query = re.sub(r"^(请问|问下|想问下|我想知道|请教一下|帮我查下)\s*", "", query)
+    return query
+
+
+def _extract_section_query(query: str) -> tuple[str, str]:
+    section_guess = "机制"
+    for sec in ["语法", "机制", "历史", "用途", "获得方式", "合成", "示例", "掉落", "生成", "属性"]:
+        if sec in query:
+            section_guess = sec
+            break
+
+    title_query = query
+    match = re.search(r"(.+?)的(.+?)(?:是|是什么|有哪些)?$", query)
+    if match:
+        title_query = match.group(1).strip()
+        right = match.group(2).strip()
+        for sec in ["语法", "机制", "历史", "用途", "获得方式", "合成", "示例", "掉落", "生成", "属性"]:
+            if sec in right:
+                section_guess = sec
+                break
+    return title_query, section_guess
+
+
 def _infer_intent(question: str) -> str:
     text = (question or "").strip().lower()
     if not text:
@@ -264,7 +292,7 @@ class MinecraftWikiPlugin(Star):
             question(string): 用户问题或关键词，例如“黑曜石爆炸抗性是多少”“/tp 怎么用”
             mode(string): 查询模式，支持 auto/summary/command/mechanic/recipe/section/search
         '''
-        query = (question or "").strip()
+        query = _normalize_question_text(question)
         if not query:
             return _to_json({"error": "empty query"}, max_chars=self.config.max_return_chars)
 
@@ -285,6 +313,10 @@ class MinecraftWikiPlugin(Star):
                 command,
                 max_chars=self.config.max_return_chars,
             )
+            if isinstance(result, dict) and result.get("error") == "page not found":
+                enriched = await self._search_with_evidence(query)
+                payload = {"intent": resolved_mode, "tool_used": "search_with_evidence", "result": enriched}
+                return _to_json(payload, max_chars=self.config.max_return_chars)
             payload = {"intent": resolved_mode, "tool_used": "get_command_info", "result": result}
             return _to_json(payload, max_chars=self.config.max_return_chars)
 
@@ -295,6 +327,10 @@ class MinecraftWikiPlugin(Star):
                 query,
                 max_chars=self.config.max_return_chars,
             )
+            if isinstance(result, dict) and result.get("error") == "page not found":
+                enriched = await self._search_with_evidence(query)
+                payload = {"intent": resolved_mode, "tool_used": "search_with_evidence", "result": enriched}
+                return _to_json(payload, max_chars=self.config.max_return_chars)
             payload = {"intent": resolved_mode, "tool_used": "get_mechanic_info", "result": result}
             return _to_json(payload, max_chars=self.config.max_return_chars)
 
@@ -305,11 +341,16 @@ class MinecraftWikiPlugin(Star):
                 query,
                 max_chars=self.config.max_return_chars,
             )
+            if isinstance(result, dict) and result.get("error") == "page not found":
+                enriched = await self._search_with_evidence(query)
+                payload = {"intent": resolved_mode, "tool_used": "search_with_evidence", "result": enriched}
+                return _to_json(payload, max_chars=self.config.max_return_chars)
             payload = {"intent": resolved_mode, "tool_used": "get_crafting_recipe", "result": result}
             return _to_json(payload, max_chars=self.config.max_return_chars)
 
         if resolved_mode == "section":
-            search_result = await search_wiki_page(self.api, query)
+            title_query, section_guess = _extract_section_query(query)
+            search_result = await search_wiki_page(self.api, title_query)
             top_title = ""
             rows = search_result.get("results", [])
             if rows:
@@ -323,18 +364,16 @@ class MinecraftWikiPlugin(Star):
                 }
                 return _to_json(payload, max_chars=self.config.max_return_chars)
 
-            section_guess = "机制"
-            for sec in ["语法", "机制", "历史", "用途", "获得方式", "合成", "示例"]:
-                if sec in query:
-                    section_guess = sec
-                    break
-
             result = await get_wiki_section(
                 self.api,
                 top_title,
                 section_guess,
                 max_chars=self.config.max_return_chars,
             )
+            if isinstance(result, dict) and result.get("error") == "page not found":
+                enriched = await self._search_with_evidence(query)
+                payload = {"intent": resolved_mode, "tool_used": "search_with_evidence", "result": enriched}
+                return _to_json(payload, max_chars=self.config.max_return_chars)
             payload = {"intent": resolved_mode, "tool_used": "get_wiki_section", "result": result}
             return _to_json(payload, max_chars=self.config.max_return_chars)
 

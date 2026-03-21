@@ -16,6 +16,17 @@ MECHANIC_ALIASES = {
 }
 
 
+def _normalize_mechanic_query(mechanic: str) -> str:
+    text = (mechanic or "").strip()
+    if not text:
+        return ""
+    text = text.strip(" \t\r\n\"'“”‘’。！？?!")
+    text = re.sub(r"^(请问|问下|想问下|我想知道|请教一下)\s*", "", text)
+    text = re.sub(r"(是什么|是啥|什么意思|介绍一下|怎么回事)$", "", text).strip()
+    text = re.sub(r"\s+", " ", text)
+    return text
+
+
 async def _resolve_mechanic_title(api: MinecraftWikiAPI, mechanic: str) -> str:
     direct_titles = [mechanic, *MECHANIC_ALIASES.get(mechanic, [])]
     for title in direct_titles:
@@ -65,7 +76,7 @@ async def get_mechanic_info(
     mechanic: str,
     max_chars: int = 1800,
 ) -> dict[str, Any]:
-    kw = (mechanic or "").strip()
+    kw = _normalize_mechanic_query(mechanic)
     if not kw:
         return {"error": "page not found"}
 

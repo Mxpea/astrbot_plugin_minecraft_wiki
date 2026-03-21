@@ -10,7 +10,15 @@ from .search_page import search_wiki_page
 
 def _normalize_command(command: str) -> str:
     cmd = (command or "").strip().lower()
+    cmd = re.sub(r"^(请问|问下|想问下|我想知道|请教一下)\s*", "", cmd)
     cmd = cmd.replace("命令", "").replace("指令", "").strip()
+    cmd = re.sub(r"(怎么用|如何使用|是什么|用法|语法|参数)$", "", cmd).strip()
+    slash = re.search(r"/(\w+)", cmd)
+    if slash:
+        return slash.group(1)
+    word = re.search(r"\b([a-z_][a-z0-9_]*)\b", cmd)
+    if word:
+        return word.group(1)
     return cmd[1:] if cmd.startswith("/") else cmd
 
 
