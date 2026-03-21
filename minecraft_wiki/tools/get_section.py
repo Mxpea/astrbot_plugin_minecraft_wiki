@@ -1,8 +1,7 @@
 from typing import Any
-import re
 
 from ..wiki.api import MinecraftWikiAPI
-from ..wiki.parser import extract_section
+from ..wiki.parser import extract_section, resolve_redirect_title
 
 
 def _choose_section_name(sections: list[dict[str, Any]], target: str) -> str:
@@ -13,11 +12,6 @@ def _choose_section_name(sections: list[dict[str, Any]], target: str) -> str:
         if target_norm in norm_line or norm_line in target_norm:
             return str(line)
     return target
-
-
-def _resolve_redirect_title(raw_wikitext: str) -> str:
-    match = re.search(r"#(?:redirect|重定向)\s*\[\[(.*?)\]\]", raw_wikitext or "", flags=re.I)
-    return match.group(1).strip() if match else ""
 
 
 async def get_wiki_section(
@@ -42,7 +36,7 @@ async def get_wiki_section(
     if isinstance(raw_wikitext, dict):
         raw_wikitext = raw_wikitext.get("*", "")
 
-    redirect_title = _resolve_redirect_title(raw_wikitext)
+    redirect_title = resolve_redirect_title(raw_wikitext)
     if redirect_title:
         title = redirect_title
         sections_data = await api.get_page_sections(title.strip())

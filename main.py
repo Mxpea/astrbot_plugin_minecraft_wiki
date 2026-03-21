@@ -8,11 +8,6 @@ from astrbot.api.event import AstrMessageEvent, filter
 from astrbot.api.star import Context, Star, register
 
 try:
-    from astrbot.api.star import StarTools
-except ImportError:
-    StarTools = None  # type: ignore[assignment]
-
-try:
     from .minecraft_wiki.config import MinecraftWikiConfig
     from .minecraft_wiki.tools import (
         get_command_info,
@@ -89,6 +84,17 @@ BROAD_TITLES = {
     "教程",
 }
 
+RE_COMMAND_SLASH = re.compile(r"/(\w+)")
+RE_COMMAND_PLAIN = re.compile(r"\b(tp|execute|give|scoreboard|summon|setblock|fill|clone|effect|enchant)\b", re.I)
+RE_POLITE_PREFIX = re.compile(r"^(请问|问下|想问下|我想知道|请教一下|帮我查下)\s*")
+RE_SECTION_QUERY = re.compile(r"(.+?)的(.+?)(?:是|是什么|有哪些)?$")
+RE_TOKENIZE = re.compile(r"[a-zA-Z_]+|[\u4e00-\u9fff]{2,}")
+RE_FACT_SPLIT = re.compile(r"[\n。；]")
+RE_MULTI_SPACE = re.compile(r"\s+")
+RE_HAS_DIGIT = re.compile(r"\d")
+RE_PRIMARY_VALUE = re.compile(r"(?:[:：\s]|^)(\d[\d,\.]*)")
+RE_VERSION_TITLE = re.compile(r"^(java版|基岩版)\d|^\d+w\d+[a-z]?", re.I)
+
 
 def _to_json(payload: dict[str, Any], max_chars: int = 3800) -> str:
     text = json.dumps(payload, ensure_ascii=False)
@@ -101,10 +107,10 @@ def _to_json(payload: dict[str, Any], max_chars: int = 3800) -> str:
 
 
 def _extract_command_from_text(text: str) -> str:
-    cmd_match = re.search(r"/(\w+)", text or "")
+    cmd_match = RE_COMMAND_SLASH.search(text or "")
     if cmd_match:
         return cmd_match.group(1)
-    plain_match = re.search(r"\b(tp|execute|give|scoreboard|summon|setblock|fill|clone|effect|enchant)\b", text or "", re.I)
+    plain_match = RE_COMMAND_PLAIN.search(text or "")
     if plain_match:
         return plain_match.group(1)
     return ""
@@ -115,7 +121,7 @@ def _normalize_question_text(text: str) -> str:
     if not query:
         return ""
     query = query.strip(" \t\r\n\"'“”‘’。！？?!")
-    query = re.sub(r"^(请问|问下|想问下|我想知道|请教一下|帮我查下)\s*", "", query)
+    query = RE_POLITE_PREFIX.sub("", query)
     return query
 
 
@@ -127,7 +133,7 @@ def _extract_section_query(query: str) -> tuple[str, str]:
             break
 
     title_query = query
-    match = re.search(r"(.+?)的(.+?)(?:是|是什么|有哪些)?$", query)
+    match = RE_SECTION_QUERY.search(query)
     if match:
         title_query = match.group(1).strip()
         right = match.group(2).strip()
@@ -167,7 +173,7 @@ def _extract_focus_keywords(query: str) -> list[str]:
     if property_keys:
         return property_keys
 
-    tokens = re.findall(r"[a-zA-Z_]+|[\u4e00-\u9fff]{2,}", normalized)
+    tokens = RE_TOKENIZE.findall(normalized)
     keys = []
     for token in tokens:
         token = token.strip()
@@ -194,13 +200,13 @@ def _extract_fact_lines(
         return []
     lines = []
     seen = set()
-    for raw in re.split(r"[\n。；]", text):
-        line = re.sub(r"\s+", " ", raw).strip()
+    for raw in RE_FACT_SPLIT.split(text):
+        line = RE_MULTI_SPACE.sub(" ", raw).strip()
         if not line:
             continue
         if not any(k in line for k in focus_keywords):
             continue
-        if require_digit and not re.search(r"\d", line):
+        if require_digit and not RE_HAS_DIGIT.search(line):
             continue
         if line in seen:
             continue
@@ -215,7 +221,7 @@ def _extract_primary_value(fact_lines: list[str], focus_keywords: list[str]) -> 
     for line in fact_lines:
         if not any(k in line for k in focus_keywords):
             continue
-        num = re.search(r"(?:[:：\s]|^)(\d[\d,\.]*)", line)
+        num = RE_PRIMARY_VALUE.search(line)
         if num:
             return num.group(1)
     return ""
@@ -230,21 +236,13 @@ def _normalize_query_aliases(query: str) -> str:
 
 def _is_version_like_title(title: str) -> bool:
     t = (title or "").strip()
-    return bool(re.match(r"^(java版|基岩版)\d|^\d+w\d+[a-z]?", t, re.I))
+    return bool(RE_VERSION_TITLE.match(t))
 
 
 @register("astrbot_plugin_minecraft_wiki", "Mxpea", "LLM 可调用的 Minecraft Wiki 中文查询插件", "v1.0.0")
 class MinecraftWikiPlugin(Star):
     def __init__(self, context: Context, config: Any | None = None):
         super().__init__(context)
-        if StarTools is not None:
-            try:
-                self.data_dir = StarTools.get_data_dir()
-            except Exception:
-                self.data_dir = None
-        else:
-            self.data_dir = None
-
         self.config = MinecraftWikiConfig.from_mapping(config)
         self.api = MinecraftWikiAPI(
             base_url=self.config.base_url,

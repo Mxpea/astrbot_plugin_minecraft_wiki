@@ -3,20 +3,27 @@ import re
 
 from ..wiki.api import MinecraftWikiAPI
 from ..wiki.cache import WikiTTLCache
-from ..wiki.parser import clean_wikitext, extract_command_usage, extract_mechanic_description, extract_section
+from ..wiki.parser import clean_wikitext, extract_command_usage, extract_mechanic_description, extract_section, resolve_redirect_title
 from .get_summary import get_wiki_summary
 from .search_page import search_wiki_page
 
 
+VERSION_TITLE_RE = re.compile(r"^(java版|基岩版|携带版|教育版)\d")
+NORMALIZE_PREFIX_RE = re.compile(r"^(请问|问下|想问下|我想知道|请教一下)\s*")
+NORMALIZE_SUFFIX_RE = re.compile(r"(怎么用|如何使用|是什么|用法|语法|参数)$")
+COMMAND_SLASH_RE = re.compile(r"/(\w+)")
+COMMAND_WORD_RE = re.compile(r"\b([a-z_][a-z0-9_]*)\b")
+
+
 def _normalize_command(command: str) -> str:
     cmd = (command or "").strip().lower()
-    cmd = re.sub(r"^(请问|问下|想问下|我想知道|请教一下)\s*", "", cmd)
+    cmd = NORMALIZE_PREFIX_RE.sub("", cmd)
     cmd = cmd.replace("命令", "").replace("指令", "").strip()
-    cmd = re.sub(r"(怎么用|如何使用|是什么|用法|语法|参数)$", "", cmd).strip()
-    slash = re.search(r"/(\w+)", cmd)
+    cmd = NORMALIZE_SUFFIX_RE.sub("", cmd).strip()
+    slash = COMMAND_SLASH_RE.search(cmd)
     if slash:
         return slash.group(1)
-    word = re.search(r"\b([a-z_][a-z0-9_]*)\b", cmd)
+    word = COMMAND_WORD_RE.search(cmd)
     if word:
         return word.group(1)
     return cmd[1:] if cmd.startswith("/") else cmd
@@ -32,7 +39,7 @@ def _pick_best_title(results: list[dict[str, str]], command: str) -> str:
             return row.get("title", "")
     for row in results:
         title = (row.get("title") or "").lower()
-        if command in title and not re.match(r"^(java版|基岩版|携带版|教育版)\d", title):
+        if command in title and not VERSION_TITLE_RE.match(title):
             return row.get("title", "")
     return results[0].get("title", "")
 
@@ -46,11 +53,6 @@ async def _resolve_command_title(api: MinecraftWikiAPI, command: str) -> str:
     return ""
 
 
-def _resolve_redirect_title(raw_wikitext: str) -> str:
-    match = re.search(r"#(?:redirect|重定向)\s*\[\[(.*?)\]\]", raw_wikitext or "", flags=re.I)
-    return match.group(1).strip() if match else ""
-
-
 def _is_noisy_markup(text: str) -> bool:
     if not text:
         return True
@@ -59,11 +61,14 @@ def _is_noisy_markup(text: str) -> bool:
 
 
 def _fallback_command_lines(wikitext: str, command: str, max_chars: int) -> str:
-    patterns = [rf"/{re.escape(command)}\b.*", rf"\b{re.escape(command)}\b.*"]
+    patterns = [
+        re.compile(rf"/{re.escape(command)}\b.*", re.I),
+        re.compile(rf"\b{re.escape(command)}\b.*", re.I),
+    ]
     lines = []
     for raw_line in (wikitext or "").splitlines():
         line = raw_line.strip()
-        if any(re.search(pattern, line, flags=re.I) for pattern in patterns):
+        if any(pattern.search(line) for pattern in patterns):
             cleaned = clean_wikitext(line, max_chars=240)
             if cleaned:
                 lines.append(cleaned)
@@ -108,7 +113,7 @@ async def get_command_info(
     if isinstance(raw_wikitext, dict):
         raw_wikitext = raw_wikitext.get("*", "")
 
-    redirect_title = _resolve_redirect_title(raw_wikitext)
+    redirect_title = resolve_redirect_title(raw_wikitext)
     if redirect_title:
         title = redirect_title
         wikitext_data = await api.get_page_wikitext(title)

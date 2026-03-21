@@ -3,7 +3,7 @@ import re
 
 from ..wiki.api import MinecraftWikiAPI
 from ..wiki.cache import WikiTTLCache
-from ..wiki.parser import extract_mechanic_description, extract_section, limit_text
+from ..wiki.parser import extract_mechanic_description, extract_section, limit_text, resolve_redirect_title
 from .get_summary import get_wiki_summary
 from .search_page import search_wiki_page
 
@@ -15,15 +15,19 @@ MECHANIC_ALIASES = {
     "伤害机制": ["伤害"],
 }
 
+MECHANIC_PREFIX_RE = re.compile(r"^(请问|问下|想问下|我想知道|请教一下)\s*")
+MECHANIC_SUFFIX_RE = re.compile(r"(是什么|是啥|什么意思|介绍一下|怎么回事)$")
+MECHANIC_SPACE_RE = re.compile(r"\s+")
+
 
 def _normalize_mechanic_query(mechanic: str) -> str:
     text = (mechanic or "").strip()
     if not text:
         return ""
     text = text.strip(" \t\r\n\"'“”‘’。！？?!")
-    text = re.sub(r"^(请问|问下|想问下|我想知道|请教一下)\s*", "", text)
-    text = re.sub(r"(是什么|是啥|什么意思|介绍一下|怎么回事)$", "", text).strip()
-    text = re.sub(r"\s+", " ", text)
+    text = MECHANIC_PREFIX_RE.sub("", text)
+    text = MECHANIC_SUFFIX_RE.sub("", text).strip()
+    text = MECHANIC_SPACE_RE.sub(" ", text)
     return text
 
 
@@ -34,11 +38,6 @@ async def _resolve_mechanic_title(api: MinecraftWikiAPI, mechanic: str) -> str:
         if not data.get("error"):
             return title
     return ""
-
-
-def _resolve_redirect_title(raw_wikitext: str) -> str:
-    match = re.search(r"#(?:redirect|重定向)\s*\[\[(.*?)\]\]", raw_wikitext or "", flags=re.I)
-    return match.group(1).strip() if match else ""
 
 
 def _cleanup_mechanic_text(text: str, max_chars: int) -> str:
@@ -109,7 +108,7 @@ async def get_mechanic_info(
     if isinstance(raw_wikitext, dict):
         raw_wikitext = raw_wikitext.get("*", "")
 
-    redirect_title = _resolve_redirect_title(raw_wikitext)
+    redirect_title = resolve_redirect_title(raw_wikitext)
     if redirect_title:
         title = redirect_title
         wikitext_data = await api.get_page_wikitext(title)

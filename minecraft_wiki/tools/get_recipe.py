@@ -3,8 +3,17 @@ import re
 
 from ..wiki.api import MinecraftWikiAPI
 from ..wiki.cache import WikiTTLCache
-from ..wiki.parser import extract_recipe
+from ..wiki.parser import extract_recipe, resolve_redirect_title
 from .search_page import search_wiki_page
+
+
+ITEM_PREFIX_RE = re.compile(r"^(请问|问下|想问下|我想知道|请教一下)\s*")
+ITEM_QUERY_PATTERNS = [
+    re.compile(r"^(.+?)\s*的?\s*(?:合成)?配方(?:是|是什么|是多少)?$"),
+    re.compile(r"^(.+?)\s*(?:怎么|如何)(?:合成|制作)$"),
+    re.compile(r"^(.+?)\s*(?:配方|合成)$"),
+]
+VERSION_TITLE_RE = re.compile(r"^(java版|基岩版|携带版|教育版|[a-z]+版指南/)\d")
 
 
 def _normalize_item_name(item: str) -> str:
@@ -13,15 +22,10 @@ def _normalize_item_name(item: str) -> str:
         return ""
 
     text = text.strip(" \t\r\n\"'“”‘’。！？?!")
-    text = re.sub(r"^(请问|问下|想问下|我想知道|请教一下)\s*", "", text)
+    text = ITEM_PREFIX_RE.sub("", text)
 
-    patterns = [
-        r"^(.+?)\s*的?\s*(?:合成)?配方(?:是|是什么|是多少)?$",
-        r"^(.+?)\s*(?:怎么|如何)(?:合成|制作)$",
-        r"^(.+?)\s*(?:配方|合成)$",
-    ]
-    for pattern in patterns:
-        match = re.match(pattern, text)
+    for pattern in ITEM_QUERY_PATTERNS:
+        match = pattern.match(text)
         if match:
             candidate = match.group(1).strip(" \t\r\n\"'“”‘’。！？?!")
             if candidate:
@@ -40,7 +44,7 @@ def _pick_best_title(results: list[dict[str, str]], item: str) -> str:
             return row.get("title", "")
     for row in results:
         title = (row.get("title") or "").lower()
-        if not re.match(r"^(java版|基岩版|携带版|教育版|[a-z]+版指南/)\d", title) and "指南/" not in title:
+        if not VERSION_TITLE_RE.match(title) and "指南/" not in title:
             return row.get("title", "")
     return results[0].get("title", "")
 
@@ -52,11 +56,6 @@ async def _resolve_item_title(api: MinecraftWikiAPI, item: str) -> str:
         if not data.get("error"):
             return title
     return ""
-
-
-def _resolve_redirect_title(raw_wikitext: str) -> str:
-    match = re.search(r"#(?:redirect|重定向)\s*\[\[(.*?)\]\]", raw_wikitext or "", flags=re.I)
-    return match.group(1).strip() if match else ""
 
 
 async def get_crafting_recipe(
@@ -96,7 +95,7 @@ async def get_crafting_recipe(
     if isinstance(raw_wikitext, dict):
         raw_wikitext = raw_wikitext.get("*", "")
 
-    redirect_title = _resolve_redirect_title(raw_wikitext)
+    redirect_title = resolve_redirect_title(raw_wikitext)
     if redirect_title:
         title = redirect_title
         wikitext_data = await api.get_page_wikitext(title)

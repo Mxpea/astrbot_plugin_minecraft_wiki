@@ -1,6 +1,9 @@
 import re
 
 
+REDIRECT_RE = re.compile(r"#(?:redirect|重定向)\s*\[\[(.*?)\]\]", re.I)
+
+
 VARIANT_KEYWORDS = {
     "下界合金": "Netherite",
     "钻石": "Diamond",
@@ -40,6 +43,11 @@ def limit_text(text: str, max_chars: int = 6000) -> str:
     if len(text) <= max_chars:
         return text
     return text[: max_chars - 3].rstrip() + "..."
+
+
+def resolve_redirect_title(raw_wikitext: str) -> str:
+    match = REDIRECT_RE.search(raw_wikitext or "")
+    return match.group(1).strip() if match else ""
 
 
 def _strip_templates(text: str) -> str:

@@ -2,6 +2,24 @@ from dataclasses import dataclass
 from typing import Any, Mapping
 
 
+def _safe_float(value: Any, default: float) -> float:
+    if value is None:
+        return default
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _safe_int(value: Any, default: int) -> int:
+    if value is None:
+        return default
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
 @dataclass
 class MinecraftWikiConfig:
     base_url: str = "https://zh.minecraft.wiki/api.php"
@@ -21,8 +39,8 @@ class MinecraftWikiConfig:
 
         return cls(
             base_url=getter("base_url", cls.base_url),
-            timeout_seconds=float(getter("timeout_seconds", cls.timeout_seconds)),
-            cache_ttl_seconds=int(getter("cache_ttl_seconds", cls.cache_ttl_seconds)),
-            max_return_chars=int(getter("max_return_chars", cls.max_return_chars)),
-            default_search_limit=int(getter("default_search_limit", cls.default_search_limit)),
+            timeout_seconds=_safe_float(getter("timeout_seconds", cls.timeout_seconds), cls.timeout_seconds),
+            cache_ttl_seconds=_safe_int(getter("cache_ttl_seconds", cls.cache_ttl_seconds), cls.cache_ttl_seconds),
+            max_return_chars=_safe_int(getter("max_return_chars", cls.max_return_chars), cls.max_return_chars),
+            default_search_limit=_safe_int(getter("default_search_limit", cls.default_search_limit), cls.default_search_limit),
         )
