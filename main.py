@@ -51,6 +51,45 @@ MINECRAFT_WIKI_TOOL_PROMPT = """
 """.strip()
 
 
+TERM_ALIASES = {
+    "predicate": "谓词",
+    "predicates": "谓词",
+    "datapack": "数据包",
+    "data pack": "数据包",
+    "function": "函数",
+    "mcfunction": "函数",
+    "loot table": "战利品表",
+}
+
+STOPWORDS = {
+    "请问",
+    "问下",
+    "想问下",
+    "我想知道",
+    "请教一下",
+    "帮我查下",
+    "是什么",
+    "是啥",
+    "什么意思",
+    "介绍一下",
+    "怎么",
+    "如何",
+    "用法",
+    "功能",
+    "关于",
+}
+
+BROAD_TITLES = {
+    "数据包",
+    "命令",
+    "方块",
+    "物品",
+    "生物",
+    "历史",
+    "教程",
+}
+
+
 def _to_json(payload: dict[str, Any], max_chars: int = 3800) -> str:
     text = json.dumps(payload, ensure_ascii=False)
     if len(text) <= max_chars:
@@ -117,16 +156,40 @@ def _infer_intent(question: str) -> str:
 
 
 def _extract_focus_keywords(query: str) -> list[str]:
-    keys = []
+    normalized = (query or "").lower()
+    for src, dst in TERM_ALIASES.items():
+        normalized = normalized.replace(src, dst)
+
+    property_keys = []
     for key in ["爆炸抗性", "硬度", "亮度", "抗性", "伤害", "生命值", "掉落", "效率"]:
-        if key in query:
-            keys.append(key)
+        if key in normalized:
+            property_keys.append(key)
+    if property_keys:
+        return property_keys
+
+    tokens = re.findall(r"[a-zA-Z_]+|[\u4e00-\u9fff]{2,}", normalized)
+    keys = []
+    for token in tokens:
+        token = token.strip()
+        if not token or token in STOPWORDS:
+            continue
+        if token in TERM_ALIASES:
+            token = TERM_ALIASES[token]
+        if token not in keys:
+            keys.append(token)
+        if len(keys) >= 4:
+            break
     if not keys:
-        keys.append("属性")
+        keys.append(normalized.strip() or "minecraft")
     return keys
 
 
-def _extract_fact_lines(text: str, focus_keywords: list[str], max_lines: int = 6) -> list[str]:
+def _extract_fact_lines(
+    text: str,
+    focus_keywords: list[str],
+    max_lines: int = 6,
+    require_digit: bool = False,
+) -> list[str]:
     if not text:
         return []
     lines = []
@@ -137,7 +200,7 @@ def _extract_fact_lines(text: str, focus_keywords: list[str], max_lines: int = 6
             continue
         if not any(k in line for k in focus_keywords):
             continue
-        if not re.search(r"\d", line):
+        if require_digit and not re.search(r"\d", line):
             continue
         if line in seen:
             continue
@@ -156,6 +219,18 @@ def _extract_primary_value(fact_lines: list[str], focus_keywords: list[str]) -> 
         if num:
             return num.group(1)
     return ""
+
+
+def _normalize_query_aliases(query: str) -> str:
+    text = (query or "").lower()
+    for src, dst in TERM_ALIASES.items():
+        text = text.replace(src, dst)
+    return text
+
+
+def _is_version_like_title(title: str) -> bool:
+    t = (title or "").strip()
+    return bool(re.match(r"^(java版|基岩版)\d|^\d+w\d+[a-z]?", t, re.I))
 
 
 @register("astrbot_plugin_minecraft_wiki", "Mxpea", "LLM 可调用的 Minecraft Wiki 中文查询插件", "v1.0.0")
@@ -186,20 +261,24 @@ class MinecraftWikiPlugin(Star):
         logger.info("minecraft_wiki tools registered")
 
     async def _search_with_evidence(self, query: str, max_candidates: int = 3) -> dict[str, Any]:
-        focus_keywords = _extract_focus_keywords(query)
+        normalized_query = _normalize_query_aliases(query)
+        focus_keywords = _extract_focus_keywords(normalized_query)
         attempted_queries = [query]
+        if normalized_query and normalized_query not in attempted_queries:
+            attempted_queries.append(normalized_query)
 
-        condensed = query
-        for key in focus_keywords:
-            condensed = condensed.replace(key, " ")
-        condensed = re.sub(r"\s+", " ", condensed).strip()
-        if condensed and condensed not in attempted_queries:
-            attempted_queries.append(condensed)
-        if condensed:
-            for suffix in ["", " 属性", " 方块", " 数据"]:
-                q = f"{condensed}{suffix}".strip()
-                if q and q not in attempted_queries:
-                    attempted_queries.append(q)
+        base_terms = [k for k in focus_keywords if k not in STOPWORDS]
+        if base_terms:
+            joined = " ".join(base_terms[:3])
+            if joined and joined not in attempted_queries:
+                attempted_queries.append(joined)
+            for term in base_terms[:3]:
+                if term and term not in attempted_queries:
+                    attempted_queries.append(term)
+        if len(base_terms) >= 2:
+            pair = f"{base_terms[0]} {base_terms[1]}"
+            if pair not in attempted_queries:
+                attempted_queries.append(pair)
 
         pool: list[dict[str, Any]] = []
         seen_titles: set[str] = set()
@@ -221,21 +300,27 @@ class MinecraftWikiPlugin(Star):
                 "candidates": [],
             }
 
-        tokens = [tok for tok in re.split(r"\s+", condensed) if tok]
+        tokens = base_terms or [tok for tok in re.split(r"\s+", normalized_query) if tok]
 
         def _score(row: dict[str, Any]) -> int:
             title = row.get("title", "")
             snippet = row.get("snippet", "")
             text = f"{title} {snippet}"
             score = 0
-            for tok in tokens:
+            if _is_version_like_title(title):
+                score -= 4
+            if len(focus_keywords) >= 2 and title in BROAD_TITLES:
+                score -= 2
+            for tok in tokens + focus_keywords:
                 if tok in title:
                     score += 3
                 elif tok in text:
                     score += 1
             for key in focus_keywords:
-                if key in text:
+                if key in title:
                     score += 4
+                elif key in text:
+                    score += 2
             return score
 
         ranked = sorted(pool, key=_score, reverse=True)[:max_candidates]
@@ -260,7 +345,8 @@ class MinecraftWikiPlugin(Star):
                     raw_wikitext = raw_wikitext.get("*", "")
 
             merged_text = "\n".join([row.get("snippet", ""), summary_text, clean_wikitext(raw_wikitext, max_chars=3200)])
-            fact_lines = _extract_fact_lines(merged_text, focus_keywords)
+            require_digit = any(k in ["爆炸抗性", "硬度", "亮度", "抗性", "伤害", "生命值", "效率"] for k in focus_keywords)
+            fact_lines = _extract_fact_lines(merged_text, focus_keywords, require_digit=require_digit)
             primary_value = _extract_primary_value(fact_lines, focus_keywords)
             if primary_value and not best_primary_value:
                 best_primary_value = primary_value
@@ -377,31 +463,12 @@ class MinecraftWikiPlugin(Star):
             payload = {"intent": resolved_mode, "tool_used": "get_wiki_section", "result": result}
             return _to_json(payload, max_chars=self.config.max_return_chars)
 
-        if any(k in query for k in ["抗性", "硬度", "亮度", "属性", "数值", "伤害"]):
-            enriched = await self._search_with_evidence(query)
-            payload = {
-                "intent": "summary",
-                "tool_used": "search_with_evidence",
-                "result": enriched,
-            }
-            return _to_json(payload, max_chars=self.config.max_return_chars)
-
-        result = await get_wiki_summary(
-            self.api,
-            self.cache,
-            query,
-            max_chars=self.config.max_return_chars,
-        )
-        if isinstance(result, dict) and result.get("error") == "page not found":
-            enriched = await self._search_with_evidence(query)
-            payload = {
-                "intent": "summary",
-                "tool_used": "search_with_evidence",
-                "result": enriched,
-            }
-            return _to_json(payload, max_chars=self.config.max_return_chars)
-
-        payload = {"intent": "summary", "tool_used": "get_wiki_summary", "result": result}
+        enriched = await self._search_with_evidence(query)
+        payload = {
+            "intent": "summary",
+            "tool_used": "search_with_evidence",
+            "result": enriched,
+        }
         return _to_json(payload, max_chars=self.config.max_return_chars)
 
     async def llm_search_wiki_page(self, event: AstrMessageEvent, query: str) -> str:
