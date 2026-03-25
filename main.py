@@ -43,6 +43,7 @@ MINECRAFT_WIKI_TOOL_PROMPT = """
 2. ask_minecraft_wiki 会自动判断是命令、机制、合成、章节还是摘要查询。
 3. 回答使用中文，先给结论，再给关键细节和示例。
 4. 如果工具返回 error=page not found，请明确告知未找到页面并给出可重试关键词。
+5. 不要回复markdown格式
 """.strip()
 
 
@@ -72,6 +73,13 @@ STOPWORDS = {
     "用法",
     "功能",
     "关于",
+    "我的世界",
+    "minecraft",
+    "版本",
+    "总结",
+    "更新",
+    "内容",
+    "改动",
 }
 
 BROAD_TITLES = {
@@ -94,6 +102,23 @@ RE_MULTI_SPACE = re.compile(r"\s+")
 RE_HAS_DIGIT = re.compile(r"\d")
 RE_PRIMARY_VALUE = re.compile(r"(?:[:：\s]|^)(\d[\d,\.]*)")
 RE_VERSION_TITLE = re.compile(r"^(java版|基岩版)\d|^\d+w\d+[a-z]?", re.I)
+RE_VERSION_QUERY = re.compile(
+    r"(?<![A-Za-z0-9])\d+w\d+[a-z]?(?![A-Za-z0-9])|(?:java版|基岩版)\s*\d+(?:\.\d+){0,2}(?:[-\s]*(?:pre|rc)\d+)?|(?<![A-Za-z0-9])\d+\.\d+(?:\.\d+)?(?:[-\s]*(?:pre|rc)\d+)?(?![A-Za-z0-9])",
+    re.I,
+)
+RE_PRE_RELEASE_TITLE = re.compile(r"(?:-rc\d*|-pre\d*|预发布|发布候选)", re.I)
+
+VERSION_HINT_KEYWORDS = {
+    "版本",
+    "更新",
+    "改动",
+    "新增",
+    "修复",
+    "快照",
+    "预发布",
+    "总结",
+    "日志",
+}
 
 
 def _to_json(payload: dict[str, Any], max_chars: int = 3800) -> str:
@@ -239,6 +264,22 @@ def _is_version_like_title(title: str) -> bool:
     return bool(RE_VERSION_TITLE.match(t))
 
 
+def _extract_version_terms(query: str) -> list[str]:
+    terms = []
+    for match in RE_VERSION_QUERY.findall(query or ""):
+        value = match.strip()
+        if value and value not in terms:
+            terms.append(value)
+    return terms
+
+
+def _is_version_summary_query(query: str) -> bool:
+    text = (query or "").lower()
+    has_version = bool(_extract_version_terms(text)) or "快照" in text
+    has_hint = any(k in text for k in VERSION_HINT_KEYWORDS)
+    return has_version and has_hint
+
+
 @register("astrbot_plugin_minecraft_wiki", "Mxpea", "LLM 可调用的 Minecraft Wiki 中文查询插件", "v1.0.0")
 class MinecraftWikiPlugin(Star):
     def __init__(self, context: Context, config: Any | None = None):
@@ -261,9 +302,30 @@ class MinecraftWikiPlugin(Star):
     async def _search_with_evidence(self, query: str, max_candidates: int = 3) -> dict[str, Any]:
         normalized_query = _normalize_query_aliases(query)
         focus_keywords = _extract_focus_keywords(normalized_query)
+        version_mode = _is_version_summary_query(normalized_query)
+        version_terms = _extract_version_terms(normalized_query)
+
         attempted_queries = [query]
         if normalized_query and normalized_query not in attempted_queries:
             attempted_queries.append(normalized_query)
+
+        if version_mode:
+            for ver in version_terms[:2]:
+                if ver not in attempted_queries:
+                    attempted_queries.append(ver)
+                if ver.startswith("java版") or ver.startswith("基岩版"):
+                    for suffix in ["更新", "版本", "改动"]:
+                        q = f"{ver} {suffix}"
+                        if q not in attempted_queries:
+                            attempted_queries.append(q)
+                elif "w" in ver.lower():
+                    for q in [f"{ver} 快照", f"java版{ver}"]:
+                        if q not in attempted_queries:
+                            attempted_queries.append(q)
+                else:
+                    for q in [f"Java版{ver}", f"Java版{ver} 更新", f"基岩版{ver}"]:
+                        if q not in attempted_queries:
+                            attempted_queries.append(q)
 
         base_terms = [k for k in focus_keywords if k not in STOPWORDS]
         if base_terms:
@@ -299,16 +361,37 @@ class MinecraftWikiPlugin(Star):
             }
 
         tokens = base_terms or [tok for tok in re.split(r"\s+", normalized_query) if tok]
+        if version_mode:
+            for ver in version_terms:
+                if ver not in tokens:
+                    tokens.append(ver)
 
         def _score(row: dict[str, Any]) -> int:
             title = row.get("title", "")
             snippet = row.get("snippet", "")
             text = f"{title} {snippet}"
             score = 0
-            if _is_version_like_title(title):
+            if _is_version_like_title(title) and not version_mode:
                 score -= 4
+            if _is_version_like_title(title) and version_mode:
+                score += 6
             if len(focus_keywords) >= 2 and title in BROAD_TITLES:
                 score -= 2
+            if version_mode and title in BROAD_TITLES:
+                score -= 3
+            if version_mode:
+                plain_query = normalized_query.replace(" ", "")
+                plain_title = title.replace(" ", "")
+                for ver in version_terms:
+                    v = ver.replace(" ", "")
+                    if not v:
+                        continue
+                    if plain_title == f"java版{v}" or plain_title == f"基岩版{v}" or plain_title == v:
+                        score += 8
+                    elif v in plain_title:
+                        score += 3
+                if ("版本" in normalized_query or "总结" in normalized_query or "更新内容" in normalized_query) and RE_PRE_RELEASE_TITLE.search(title):
+                    score -= 2
             for tok in tokens + focus_keywords:
                 if tok in title:
                     score += 3
