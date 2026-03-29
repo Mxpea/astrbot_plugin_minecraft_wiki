@@ -26,6 +26,7 @@ class MinecraftWikiConfig:
     timeout_seconds: float = 12.0
     cache_ttl_seconds: int = 24 * 60 * 60
     max_return_chars: int = 3800
+    max_full_page_chars: int = 16000
     default_search_limit: int = 5
 
     @classmethod
@@ -38,9 +39,10 @@ class MinecraftWikiConfig:
             return cls()
 
         return cls(
-            base_url=getter("base_url", cls.base_url),
+            base_url=str(getter("base_url", cls.base_url) or cls.base_url),
             timeout_seconds=_safe_float(getter("timeout_seconds", cls.timeout_seconds), cls.timeout_seconds),
             cache_ttl_seconds=_safe_int(getter("cache_ttl_seconds", cls.cache_ttl_seconds), cls.cache_ttl_seconds),
             max_return_chars=_safe_int(getter("max_return_chars", cls.max_return_chars), cls.max_return_chars),
+            max_full_page_chars=_safe_int(getter("max_full_page_chars", cls.max_full_page_chars), cls.max_full_page_chars),
             default_search_limit=_safe_int(getter("default_search_limit", cls.default_search_limit), cls.default_search_limit),
         )

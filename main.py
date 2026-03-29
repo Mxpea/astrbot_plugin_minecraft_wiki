@@ -19,7 +19,7 @@ try:
     )
     from .minecraft_wiki.wiki.api import MinecraftWikiAPI
     from .minecraft_wiki.wiki.cache import WikiTTLCache
-    from .minecraft_wiki.wiki.parser import clean_wikitext
+    from .minecraft_wiki.wiki.parser import clean_wikitext, resolve_redirect_title
 except ImportError:
     from minecraft_wiki.config import MinecraftWikiConfig
     from minecraft_wiki.tools import (
@@ -32,7 +32,7 @@ except ImportError:
     )
     from minecraft_wiki.wiki.api import MinecraftWikiAPI
     from minecraft_wiki.wiki.cache import WikiTTLCache
-    from minecraft_wiki.wiki.parser import clean_wikitext
+    from minecraft_wiki.wiki.parser import clean_wikitext, resolve_redirect_title
 
 
 MINECRAFT_WIKI_TOOL_PROMPT = """
@@ -40,10 +40,9 @@ MINECRAFT_WIKI_TOOL_PROMPT = """
 
 规则：
 1. 默认只调用 ask_minecraft_wiki，避免在多个工具之间反复试错。
-2. ask_minecraft_wiki 会自动判断是命令、机制、合成、章节还是摘要查询。
+2. ask_minecraft_wiki 会自动判断是命令、机制、合成、章节还是摘要查询；当需要完整页面上下文时可使用 full_page。
 3. 回答使用中文，先给结论，再给关键细节和示例。
 4. 如果工具返回 error=page not found，请明确告知未找到页面并给出可重试关键词。
-5. 不要回复markdown格式
 """.strip()
 
 
@@ -107,6 +106,7 @@ RE_VERSION_QUERY = re.compile(
     re.I,
 )
 RE_PRE_RELEASE_TITLE = re.compile(r"(?:-rc\d*|-pre\d*|预发布|发布候选)", re.I)
+RE_DIRECT_TITLE = re.compile(r"^(?:title|页面|page)\s*[:：]\s*(.+)$", re.I)
 
 VERSION_HINT_KEYWORDS = {
     "版本",
@@ -451,19 +451,81 @@ class MinecraftWikiPlugin(Star):
             "candidates": candidates,
         }
 
+    async def _get_full_page(self, query: str) -> dict[str, Any]:
+        direct = RE_DIRECT_TITLE.match(query or "")
+        if direct:
+            title = direct.group(1).strip()
+            candidates = []
+            attempted_queries = [query]
+        else:
+            enriched = await self._search_with_evidence(query, max_candidates=5)
+            candidates = enriched.get("candidates", []) if isinstance(enriched, dict) else []
+            if not candidates:
+                return {
+                    "error": "page not found",
+                    "query": query,
+                    "attempted_queries": enriched.get("attempted_queries", []) if isinstance(enriched, dict) else [],
+                }
+            title = str(candidates[0].get("title", "")).strip()
+            attempted_queries = enriched.get("attempted_queries", []) if isinstance(enriched, dict) else []
+
+        if not title:
+            return {"error": "page not found", "query": query}
+
+        wikitext_data = await self.api.get_page_wikitext(title)
+        if wikitext_data.get("error"):
+            return {"error": "page not found", "query": query, "title": title}
+
+        raw_wikitext = wikitext_data.get("parse", {}).get("wikitext", "")
+        if isinstance(raw_wikitext, dict):
+            raw_wikitext = raw_wikitext.get("*", "")
+
+        redirect_title = resolve_redirect_title(raw_wikitext)
+        if redirect_title:
+            title = redirect_title
+            wikitext_data = await self.api.get_page_wikitext(title)
+            if wikitext_data.get("error"):
+                return {"error": "page not found", "query": query, "title": title}
+            raw_wikitext = wikitext_data.get("parse", {}).get("wikitext", "")
+            if isinstance(raw_wikitext, dict):
+                raw_wikitext = raw_wikitext.get("*", "")
+
+        sections_data = await self.api.get_page_sections(title)
+        sections = []
+        if not sections_data.get("error"):
+            raw_sections = sections_data.get("parse", {}).get("sections", [])
+            for sec in raw_sections[:80]:
+                line = str(sec.get("line", "")).strip()
+                if line:
+                    sections.append(line)
+
+        full_text = clean_wikitext(raw_wikitext, max_chars=self.config.max_full_page_chars)
+        is_truncated = full_text.endswith("...") and len(full_text) >= max(8, self.config.max_full_page_chars - 10)
+        return {
+            "query": query,
+            "title": title,
+            "attempted_queries": attempted_queries,
+            "content_chars": len(full_text),
+            "is_truncated": is_truncated,
+            "sections": sections,
+            "content": full_text,
+        }
+
     @filter.llm_tool(name="ask_minecraft_wiki")
     async def llm_ask_minecraft_wiki(self, event: AstrMessageEvent, question: str, mode: str = "auto") -> str:
         '''统一查询 Minecraft Wiki（推荐给 LLM 的唯一工具入口）。
 
         Args:
             question(string): 用户问题或关键词，例如“黑曜石爆炸抗性是多少”“/tp 怎么用”
-            mode(string): 查询模式，支持 auto/summary/command/mechanic/recipe/section/search
+            mode(string): 查询模式，支持 auto/summary/command/mechanic/recipe/section/search/full_page
         '''
         query = _normalize_question_text(question)
         if not query:
             return _to_json({"error": "empty query"}, max_chars=self.config.max_return_chars)
 
         resolved_mode = (mode or "auto").strip().lower()
+        if resolved_mode in {"full", "page"}:
+            resolved_mode = "full_page"
         if resolved_mode == "auto":
             resolved_mode = _infer_intent(query)
 
@@ -471,6 +533,11 @@ class MinecraftWikiPlugin(Star):
             result = await search_wiki_page(self.api, query)
             payload = {"intent": resolved_mode, "tool_used": "search_wiki_page", "result": result}
             return _to_json(payload, max_chars=self.config.max_return_chars)
+
+        if resolved_mode == "full_page":
+            result = await self._get_full_page(query)
+            payload = {"intent": resolved_mode, "tool_used": "get_full_page", "result": result}
+            return _to_json(payload, max_chars=max(self.config.max_return_chars, self.config.max_full_page_chars + 2000))
 
         if resolved_mode == "command":
             command = _extract_command_from_text(query) or query
