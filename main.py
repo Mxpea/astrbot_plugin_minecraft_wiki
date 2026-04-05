@@ -280,7 +280,7 @@ def _is_version_summary_query(query: str) -> bool:
     return has_version and has_hint
 
 
-@register("astrbot_plugin_minecraft_wiki", "Mxpea", "LLM 可调用的 Minecraft Wiki 中文查询插件", "v1.0.0")
+@register("astrbot_plugin_minecraft_wiki", "Mxpea(or)Aurelith", "LLM 可调用的 Minecraft Wiki 中文查询插件", "v1.2.0")
 class MinecraftWikiPlugin(Star):
     def __init__(self, context: Context, config: Any | None = None):
         super().__init__(context)
